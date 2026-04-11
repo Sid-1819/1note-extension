@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "OneNote quick save",
+  "version": "0.0.1",
+  "description": "Save focused field text as a shareable note via the 1note API.",
+  "permissions": ["activeTab", "scripting", "storage"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
