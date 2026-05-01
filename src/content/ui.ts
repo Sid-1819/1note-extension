@@ -75,6 +75,11 @@ function removeIcon(): void {
   saveInFlight = false;
 }
 
+/** Remove floating save control immediately (e.g. icon disabled in settings). */
+export function removeFloatingIcon(): void {
+  removeIcon();
+}
+
 /**
  * After focus leaves a field, remove the control unless focus moved to our
  * button or is still inside the same field host (e.g. contenteditable child).

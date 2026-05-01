@@ -1,8 +1,10 @@
+import { FLOATING_ICON_ENABLED_KEY } from "../defaults.js";
 import { LOG_PREFIX } from "./debug.js";
 import { closestContentEditableHost, getText } from "./extractor.js";
 import {
   attachIcon,
   dismissIconIfFocusMovedAway,
+  removeFloatingIcon,
   setIconLoading,
   showToast,
 } from "./ui.js";
@@ -84,6 +86,14 @@ console.log(LOG_PREFIX, "content script loaded", {
   readyState: document.readyState,
 });
 
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== "local") return;
+  const ch = changes[FLOATING_ICON_ENABLED_KEY];
+  if (ch?.newValue === false) {
+    removeFloatingIcon();
+  }
+});
+
 document.addEventListener(
   "focusout",
   () => {
@@ -94,7 +104,13 @@ document.addEventListener(
 
 document.addEventListener(
   "focusin",
-  (event) => {
+  async (event) => {
+    const { [FLOATING_ICON_ENABLED_KEY]: floating } =
+      await chrome.storage.local.get(FLOATING_ICON_ENABLED_KEY);
+    if (floating === false) {
+      return;
+    }
+
     const host = resolveFocusFieldHost(event);
     const path = event.composedPath();
     const pathElements = path.filter((n): n is Element => n instanceof Element);

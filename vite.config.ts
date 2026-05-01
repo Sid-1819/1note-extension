@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Plugin } from "vite";
 import { defineConfig } from "vite";
+import tailwindcss from '@tailwindcss/vite'
 
 const rootDir = path.dirname(fileURLToPath(import.meta.url));
 
@@ -33,7 +34,12 @@ function manifestHostPermissionsPlugin(): Plugin {
 
 export default defineConfig({
   base: "./",
-  plugins: [manifestHostPermissionsPlugin()],
+  resolve: {
+    alias: {
+      "@": path.resolve(rootDir, "src"),
+    },
+  },
+  plugins: [tailwindcss(),manifestHostPermissionsPlugin()],
   publicDir: "public",
   build: {
     outDir: "dist",

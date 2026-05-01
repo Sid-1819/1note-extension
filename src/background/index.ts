@@ -1,13 +1,8 @@
-import {
-  DEFAULT_NOTE_EXPIRES_AFTER_MINUTES,
-  DEFAULT_NOTE_MAX_VIEWS,
-  NOTE_EXPIRES_AFTER_MINUTES_KEY,
-  NOTE_MAX_VIEWS_KEY,
-} from "../defaults.js";
+import { readResolvedNoteCreationParams } from "../defaults.js";
 
 type SaveNoteMessage = {
   type: "SAVE_NOTE";
-  payload: { text: string };
+  payload: { text: string; password?: string };
 };
 
 type SaveNoteResponse = { url: string } | { error: string };
@@ -27,23 +22,6 @@ function messageFromBody(body: unknown): string | undefined {
   return undefined;
 }
 
-async function readNoteDefaults(): Promise<{
-  expiresAfterMinutes: number;
-  maxViews: number;
-}> {
-  const data = await chrome.storage.local.get([
-    NOTE_EXPIRES_AFTER_MINUTES_KEY,
-    NOTE_MAX_VIEWS_KEY,
-  ]);
-  let minutes = Number(data[NOTE_EXPIRES_AFTER_MINUTES_KEY]);
-  if (!Number.isFinite(minutes)) minutes = DEFAULT_NOTE_EXPIRES_AFTER_MINUTES;
-  minutes = Math.max(1, Math.floor(minutes));
-  let maxViews = Number(data[NOTE_MAX_VIEWS_KEY]);
-  if (!Number.isFinite(maxViews)) maxViews = DEFAULT_NOTE_MAX_VIEWS;
-  maxViews = Math.min(1000, Math.max(1, Math.floor(maxViews)));
-  return { expiresAfterMinutes: minutes, maxViews };
-}
-
 chrome.runtime.onMessage.addListener(
   (message: unknown, _sender, sendResponse): boolean => {
     if (
@@ -54,7 +32,7 @@ chrome.runtime.onMessage.addListener(
       return false;
     }
 
-    const { text } = (message as SaveNoteMessage).payload;
+    const { text, password } = (message as SaveNoteMessage).payload;
     if (typeof text !== "string") {
       sendResponse({ error: "Invalid payload." } satisfies SaveNoteResponse);
       return false;
@@ -63,26 +41,35 @@ chrome.runtime.onMessage.addListener(
     void (async () => {
       const base = apiBase();
       try {
-        const { expiresAfterMinutes, maxViews } = await readNoteDefaults();
+        const { expiresAfterMinutes, maxViews } =
+          await readResolvedNoteCreationParams();
         const expiresAt = new Date(
           Date.now() + expiresAfterMinutes * 60_000,
         ).toISOString();
 
+        const trimmedPassword =
+          typeof password === "string" ? password.trim() : "";
+
+        const body: Record<string, unknown> = {
+          content: text,
+          maxViews,
+          expiresAt,
+        };
+        if (trimmedPassword !== "") {
+          body.password = trimmedPassword;
+        }
+
         const res = await fetch(`${base}/s`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            content: text,
-            maxViews,
-            expiresAt,
-          }),
+          body: JSON.stringify(body),
         });
 
-        const body: unknown = await res.json().catch(() => ({}));
+        const resBody: unknown = await res.json().catch(() => ({}));
 
         if (!res.ok) {
           let err =
-            messageFromBody(body) ??
+            messageFromBody(resBody) ??
             (res.status === 429
               ? "Too many saves. Try again later."
               : "Could not save.");
@@ -90,7 +77,7 @@ chrome.runtime.onMessage.addListener(
           return;
         }
 
-        const url = (body as { url?: unknown }).url;
+        const url = (resBody as { url?: unknown }).url;
         if (typeof url !== "string" || !url) {
           sendResponse({
             error: "No link returned from server.",
