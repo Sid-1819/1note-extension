@@ -1,6 +1,18 @@
+import { LOG_PREFIX } from "./debug.js";
+
 const Z = 2147483646;
-const ICON = "📘";
 const ICON_BUSY = "⏳";
+const ICON_ASSET = "GET_SECRET-ICON-removebg-preview.svg";
+
+function iconAssetUrl(): string {
+  return chrome.runtime.getURL(ICON_ASSET);
+}
+
+const ICON_BG = "transparent";
+const ICON_BG_BUSY = "transparent";
+const ICON_BORDER = "none";
+const ICON_BORDER_BUSY = "none";
+const ICON_SHADOW = "none";
 
 let iconButton: HTMLButtonElement | null = null;
 let iconTarget: Element | null = null;
@@ -13,18 +25,34 @@ let toastTimer: ReturnType<typeof setTimeout> | null = null;
 function reposition(): void {
   if (!iconButton || !iconTarget) return;
   const rect = iconTarget.getBoundingClientRect();
-  const gap = 6;
+  const inset = 6;
   const size = 32;
-  const rawLeft = rect.right + gap;
-  const rawTop = rect.top + (rect.height - size) / 2;
-  const left = Math.min(
-    Math.max(rawLeft, 8),
-    window.innerWidth - size - 8,
-  );
-  const top = Math.min(
-    Math.max(rawTop, 8),
-    window.innerHeight - size - 8,
-  );
+
+  // Top-right inside the field (viewport coords match getBoundingClientRect).
+  let left = rect.right - size - inset;
+  let top = rect.top + inset;
+
+  const minLeft = rect.left + inset;
+  const maxLeft = rect.right - size - inset;
+  const minTop = rect.top + inset;
+  const maxTop = rect.bottom - size - inset;
+
+  if (maxLeft >= minLeft) {
+    left = Math.min(Math.max(left, minLeft), maxLeft);
+  } else {
+    left = rect.left + Math.max(0, (rect.width - size) / 2);
+  }
+  if (maxTop >= minTop) {
+    top = Math.min(Math.max(top, minTop), maxTop);
+  } else {
+    top = rect.top + Math.max(0, (rect.height - size) / 2);
+  }
+
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  left = Math.min(Math.max(left, 8), vw - size - 8);
+  top = Math.min(Math.max(top, 8), vh - size - 8);
+
   iconButton.style.left = `${left}px`;
   iconButton.style.top = `${top}px`;
 }
@@ -47,11 +75,46 @@ function removeIcon(): void {
   saveInFlight = false;
 }
 
+/**
+ * After focus leaves a field, remove the control unless focus moved to our
+ * button or is still inside the same field host (e.g. contenteditable child).
+ */
+export function dismissIconIfFocusMovedAway(): void {
+  window.setTimeout(() => {
+    if (!iconButton || !iconTarget) return;
+    const active = document.activeElement;
+    if (active && (active === iconButton || iconButton.contains(active))) {
+      return;
+    }
+    if (active && (iconTarget === active || iconTarget.contains(active))) {
+      return;
+    }
+    removeIcon();
+  }, 0);
+}
+
 export function setIconLoading(loading: boolean): void {
   if (!iconButton) return;
   busy = loading;
-  iconButton.textContent = loading ? ICON_BUSY : ICON;
-  iconButton.style.opacity = loading ? "0.85" : "1";
+  const imgEl = iconButton.querySelector<HTMLImageElement>("img");
+  let busyEl = iconButton.querySelector<HTMLElement>("[data-vanixx-busy]");
+  if (loading) {
+    if (imgEl) imgEl.style.opacity = "0.28";
+    if (!busyEl) {
+      busyEl = document.createElement("span");
+      busyEl.setAttribute("data-vanixx-busy", "");
+      busyEl.textContent = ICON_BUSY;
+      busyEl.setAttribute("aria-hidden", "true");
+      busyEl.style.cssText =
+        "position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:14px;line-height:1;pointer-events:none";
+      iconButton.appendChild(busyEl);
+    }
+  } else {
+    if (imgEl) imgEl.style.opacity = "1";
+    busyEl?.remove();
+  }
+  iconButton.style.background = loading ? ICON_BG_BUSY : ICON_BG;
+  iconButton.style.border = loading ? ICON_BORDER_BUSY : ICON_BORDER;
   iconButton.style.pointerEvents = loading ? "none" : "auto";
 }
 
@@ -61,8 +124,17 @@ export function attachIcon(target: Element, onClick: () => void | Promise<void>)
   const button = document.createElement("button");
   button.type = "button";
   button.tabIndex = -1;
-  button.textContent = ICON;
   button.setAttribute("aria-label", "Save to OneNote");
+
+  const img = document.createElement("img");
+  img.src = iconAssetUrl();
+  img.alt = "";
+  img.draggable = false;
+  img.style.cssText =
+    "width:22px;height:22px;display:block;object-fit:contain;pointer-events:none;user-select:none";
+
+  button.appendChild(img);
+
   button.style.cssText = [
     "position:fixed",
     "box-sizing:border-box",
@@ -71,28 +143,29 @@ export function attachIcon(target: Element, onClick: () => void | Promise<void>)
     "height:32px",
     "padding:0",
     "margin:0",
-    "border:1px solid rgba(0,0,0,0.12)",
+    `border:${ICON_BORDER}`,
     "border-radius:8px",
-    "background:#fff",
-    "box-shadow:0 2px 8px rgba(0,0,0,0.15)",
+    `background:${ICON_BG}`,
+    `box-shadow:${ICON_SHADOW}`,
+    "outline:none",
+    "-webkit-appearance:none",
+    "appearance:none",
     "cursor:pointer",
-    "font-size:18px",
-    "line-height:1",
     "display:flex",
     "align-items:center",
     "justify-content:center",
     "font-family:system-ui,sans-serif",
-    "transition:transform 0.12s ease,box-shadow 0.12s ease",
+    "transition:transform 0.12s ease,filter 0.12s ease",
   ].join(";");
 
   button.addEventListener("mouseenter", () => {
     if (busy) return;
     button.style.transform = "scale(1.06)";
-    button.style.boxShadow = "0 3px 10px rgba(0,0,0,0.2)";
+    img.style.filter = "brightness(1.12)";
   });
   button.addEventListener("mouseleave", () => {
     button.style.transform = "";
-    button.style.boxShadow = "0 2px 8px rgba(0,0,0,0.15)";
+    img.style.filter = "";
   });
 
   button.addEventListener("mousedown", (e) => {
@@ -114,7 +187,20 @@ export function attachIcon(target: Element, onClick: () => void | Promise<void>)
   iconButton = button;
   iconTarget = target;
   document.documentElement.appendChild(button);
+  const tr = target.getBoundingClientRect();
   reposition();
+  console.log(LOG_PREFIX, "attachIcon: mounted + positioned", {
+    targetTag: target.tagName,
+    targetRect: {
+      top: tr.top,
+      left: tr.left,
+      width: tr.width,
+      height: tr.height,
+    },
+    buttonCssPos: { left: button.style.left, top: button.style.top },
+    viewport: { w: window.innerWidth, h: window.innerHeight },
+    zIndex: Z,
+  });
   window.addEventListener("scroll", onScrollOrResize, true);
   window.addEventListener("resize", onScrollOrResize);
 }

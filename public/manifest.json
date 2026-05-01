@@ -4,6 +4,10 @@
   "version": "0.0.1",
   "description": "Save focused field text as a shareable note via the 1note API.",
   "permissions": ["activeTab", "scripting", "storage"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "1note quick save"
+  },
   "background": {
     "service_worker": "background.js",
     "type": "module"
@@ -12,7 +16,14 @@
     {
       "matches": ["<all_urls>"],
       "js": ["content.js"],
-      "run_at": "document_idle"
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["GET_SECRET-ICON-removebg-preview.svg"],
+      "matches": ["<all_urls>"]
     }
   ]
 }

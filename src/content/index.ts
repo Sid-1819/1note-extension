@@ -1,6 +1,13 @@
-import { getText } from "./extractor.js";
-import { attachIcon, setIconLoading, showToast } from "./ui.js";
+import { LOG_PREFIX } from "./debug.js";
+import { closestContentEditableHost, getText } from "./extractor.js";
+import {
+  attachIcon,
+  dismissIconIfFocusMovedAway,
+  setIconLoading,
+  showToast,
+} from "./ui.js";
 
+// Skip input types that are not useful as note sources (non-text or non-note-like).
 const skippedInputTypes = new Set([
   "hidden",
   "button",
@@ -25,8 +32,33 @@ function resolveFieldHost(el: Element | null): Element | null {
     return el;
   }
 
-  const ce = el.closest<HTMLElement>("[contenteditable=\"true\"]");
+  const ce = closestContentEditableHost(el);
   return ce ?? null;
+}
+
+function summarizeNode(node: EventTarget | null): string {
+  if (node == null) return "null";
+  if (!(node instanceof Element)) {
+    return node instanceof Node ? node.nodeName : String(node);
+  }
+  const id = node.id ? `#${node.id}` : "";
+  const ce = node.getAttribute("contenteditable");
+  const role = node.getAttribute("role");
+  const parts = [`<${node.tagName.toLowerCase()}${id}>`];
+  if (ce != null) parts.push(`contenteditable=${JSON.stringify(ce)}`);
+  if (role) parts.push(`role=${role}`);
+  return parts.join(" ");
+}
+
+/** Shadow DOM retargets `focusin.target` to the host; walk the real path. */
+function resolveFocusFieldHost(event: FocusEvent): Element | null {
+  const path = event.composedPath();
+  for (const node of path) {
+    if (!(node instanceof Element)) continue;
+    const host = resolveFieldHost(node);
+    if (host) return host;
+  }
+  return null;
 }
 
 type SaveNoteResult = { url?: string; error?: string };
@@ -46,15 +78,48 @@ function sendSaveNote(text: string): Promise<SaveNoteResult> {
   });
 }
 
+console.log(LOG_PREFIX, "content script loaded", {
+  href: location.href,
+  isTopFrame: window === window.top,
+  readyState: document.readyState,
+});
+
+document.addEventListener(
+  "focusout",
+  () => {
+    dismissIconIfFocusMovedAway();
+  },
+  true,
+);
+
 document.addEventListener(
   "focusin",
   (event) => {
-    const host = resolveFieldHost(event.target as Element | null);
-    if (!host) return;
+    const host = resolveFocusFieldHost(event);
+    const path = event.composedPath();
+    const pathElements = path.filter((n): n is Element => n instanceof Element);
+    const pathSummary = pathElements.slice(0, 10).map(summarizeNode).join(" ← ");
+
+    if (!host) {
+      console.log(LOG_PREFIX, "focusin: no field host", {
+        eventTarget: summarizeNode(event.target),
+        pathPreview: pathSummary,
+        pathLen: path.length,
+      });
+      return;
+    }
+
+    console.log(LOG_PREFIX, "focusin: show save icon", {
+      host: summarizeNode(host),
+      pathPreview: pathSummary,
+    });
 
     attachIcon(host, async () => {
       const text = getText(host).trim();
-      if (!text) return;
+      if (!text) {
+        showToast("Nothing to save.");
+        return;
+      }
 
       setIconLoading(true);
       try {

@@ -32,6 +32,7 @@ function manifestHostPermissionsPlugin(): Plugin {
 }
 
 export default defineConfig({
+  base: "./",
   plugins: [manifestHostPermissionsPlugin()],
   publicDir: "public",
   build: {
@@ -41,6 +42,7 @@ export default defineConfig({
       input: {
         content: path.resolve(rootDir, "src/content/index.ts"),
         background: path.resolve(rootDir, "src/background/index.ts"),
+        popup: path.resolve(rootDir, "popup.html"),
       },
       output: {
         entryFileNames: "[name].js",
